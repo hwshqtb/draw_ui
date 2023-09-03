@@ -1,9 +1,0 @@
-<RCC>
-    <qresource prefix="/buttons">
-        <file>add.png</file>
-        <file>sub.png</file>
-        <file>fold.png</file>
-        <file alias="undetermined.png">hwshqtb2.png</file>
-        <file>unfold.png</file>
-    </qresource>
-</RCC>
