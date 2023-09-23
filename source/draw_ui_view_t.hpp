@@ -28,6 +28,7 @@
 #include <QRandomGenerator>
 #include <QLabel>
 
+#include <deque>
 #include <list>
 
 namespace hwshqtb {
@@ -140,7 +141,7 @@ namespace hwshqtb {
             connect(&_delete_button, &QPushButton::clicked, this, [this, self_iterator]() {
                 _metaproperties_name_edit.clear();
                 hide();
-                emit remove(self_iterator);
+                remove(self_iterator);
             });
         }
 
@@ -327,10 +328,10 @@ namespace hwshqtb {
         }
         void keyReleaseEvent(QKeyEvent* event) {
             switch (event->key()) {
-                case Qt::Key_Up: _offset.ry() += 1; break;
-                case Qt::Key_Down: _offset.ry() -= 1; break;
-                case Qt::Key_Left: _offset.rx() -= 1; break;
-                case Qt::Key_Right: _offset.rx() += 1; break;
+            case Qt::Key_Up: _offset.ry() += 1; break;
+            case Qt::Key_Down: _offset.ry() -= 1; break;
+            case Qt::Key_Left: _offset.rx() -= 1; break;
+            case Qt::Key_Right: _offset.rx() += 1; break;
             }
 
             update();
@@ -351,39 +352,77 @@ namespace hwshqtb {
 
     public:
         edit_properties_view_t(QWidget* parent):
-            QWidget::QWidget(parent){ }
-
-        void showEvent(QShowEvent* event) {
+            QWidget::QWidget(parent, Qt::Tool) {
+            _metatype.move(0, 0);
+            _area.setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            _area.setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            _area.setWidget(&_area_widget);
+            _area.move(0, 50);
+            _area_widget.move(0, 0);
         }
+
+        void showEvent(QShowEvent* event) {}
         void resizeEvent(QResizeEvent* event) {
+            _area.resize(width(), height() - 50);
+            _area_widget.resize(width(), height() - 50);
+            for (auto& value_edit : _value_edits)
+                value_edit.resize(_area_widget.width() - 200, 50);
         }
-        void hideEvent(QHideEvent* event) {
+        void hideEvent(QHideEvent* event) {}
+        void closeEvent(QCloseEvent* event) {
+            event->ignore();
+            hide();
+            _save_metatype();
         }
 
-        void set_tile(int i) {
+        void load_tile(int i) {
             _index = i;
             _metatype.clear();
             for (const auto& [name, meta_properties] : draw_ui_controller_t::instance().data.metatypes()) {
                 _metatype.addItem(QString::fromStdString(name));
                 if (name == draw_ui_controller_t::instance().data.type(i)) {
                     _metatype.setCurrentIndex(_metatype.count() - 1);
-                    int size = 0;
-                    for (const auto& [key, type] : meta_properties) {
-                        if (_types.size() <= size) {
-                            _types.emplace_back(resources_t::instance().metatype_name[static_cast<int>(type)], this);
-                            _keys.emplace_back(QString::fromStdString(key), this);
-                            _value_edits.emplace_back(QString::fromStdString(draw_ui_controller_t::instance().data.value(i, key)), this);
-                        }
-                    }
+                    _load_metatype(meta_properties);
                 }
             }
         }
 
     private:
+        void _load_metatype(const draw_ui_data_t::meta_properties_t& meta_properties) {
+            // = draw_ui_controller_t::instance().data.metatypes().at(_metatype.currentText().toStdString());
+            int size = 0;
+            for (const auto& [key, type] : meta_properties) {
+                if (size < _types.size()) {
+                    _types[size].setText(resources_t::instance().metatype_name[static_cast<int>(type)]);
+                    _keys[size].setText(QString::fromStdString(key));
+                    _value_edits[size].setPlainText(draw_ui_controller_t::instance().get_property(_index, key));
+                }
+                else {
+                    _types.emplace_back(resources_t::instance().metatype_name[static_cast<int>(type)], &_area_widget);
+                    _types.back().move(0, size * 50);
+                    _types.back().resize(100, 50);
+                    _keys.emplace_back(QString::fromStdString(key), &_area_widget);
+                    _keys.back().move(100, size * 50);
+                    _keys.back().resize(100, 50);
+                    _value_edits.emplace_back(draw_ui_controller_t::instance().get_property(_index, key), &_area_widget);
+                    _value_edits.back().move(200, size * 50);
+                }
+                ++size;
+            }
+        }
+        void _save_metatype() {
+            draw_ui_controller_t::instance().change_type(_index, _metatype.currentText());
+            for (int i = 0; i < _types.size(); ++i)
+                draw_ui_controller_t::instance().change_property(_index, _keys[i].text(), _value_edits[i].toPlainText());
+        }
+
+        QScrollArea _area{this};
+        QWidget _area_widget{this};
+
         QComboBox _metatype{this};
-        std::vector<QLabel> _types;
-        std::vector<QLabel> _keys;
-        std::list<QTextEdit> _value_edits;
+        std::deque<QLabel> _types;
+        std::deque<QLabel> _keys;
+        std::deque<QTextEdit> _value_edits;
 
         int _index;
     };
@@ -418,11 +457,12 @@ namespace hwshqtb {
                 if (times) painter.drawPoint(point);
         }
         void mouseReleaseEvent(QMouseEvent* event) {
-            if (event->button() == Qt::LeftButton) {
-                
-            }
-            else {
-
+            if (event->button() == Qt::LeftButton && !_properties_view.isVisible()) {
+                if (int index = draw_ui_controller_t::instance().polygon_of_point(event->pos()); index == -1) return;
+                else {
+                    _properties_view.load_tile(index);
+                    _properties_view.show();
+                }
             }
             update();
         }
@@ -435,6 +475,8 @@ namespace hwshqtb {
         QPointF _offset = {0, 0};
         double _zoom = 1.0;
 
+        edit_properties_view_t _properties_view{this};
+
     };
 
     class draw_ui_view_t: public QMainWindow {
@@ -445,29 +487,68 @@ namespace hwshqtb {
             QMainWindow::QMainWindow(parent) {
 
             QMenu* file_menu = menuBar()->addMenu(tr(u8"&File"));
-            QAction* new_action = file_menu->addAction(tr(u8"&New"));
             QAction* open_action = file_menu->addAction(tr(u8"&Open"));
             QAction* save_action = file_menu->addAction(tr(u8"&Save"));
+            save_action->setEnabled(false);
             QAction* save_as_action = file_menu->addAction(tr(u8"Save &As"));
+            save_as_action->setEnabled(false);
             QAction* close_action = file_menu->addAction(tr(u8"&Close"));
+            close_action->setEnabled(false);
 
             QMenu* edit_menu = menuBar()->addMenu(tr(u8"&Edit"));
-            QAction* edit_metatype_action = edit_menu->addAction(tr(u8"edit type(s)"), [this]() {
-                _add_type.show();
-            });
+            QAction* edit_metatype_action = edit_menu->addAction(tr(u8"edit type(s)"));
+            edit_metatype_action->setEnabled(false);
             edit_menu->addSeparator();
             QAction* add_object_action = edit_menu->addAction(tr(u8"Add object(s)"));
             add_object_action->setEnabled(false);
             QAction* finish_add_object_action = edit_menu->addAction(tr(u8"finish"));
             finish_add_object_action->setEnabled(false);
-            QComboBox* types_combobox = new QComboBox(this);
             QWidgetAction* choose_type_action = new QWidgetAction(edit_menu);
+            QComboBox* types_combobox = new QComboBox;
             choose_type_action->setDefaultWidget(types_combobox);
             edit_menu->addAction(choose_type_action);
             choose_type_action->setEnabled(false);
+
+            QMenu* about_menu = menuBar()->addMenu(tr(u8"About"));
+            QAction* about_action = about_menu->addAction(tr(u8"About the application"));
+            QAction* aboutqt_action = about_menu->addAction(tr(u8"About Qt"));
+
+            connect(open_action, &QAction::triggered, this, [save_action, save_as_action, close_action, edit_metatype_action]() {
+                if (QString name = QFileDialog::getOpenFileName(nullptr, u8"选择文件"); name.size()) {
+                    draw_ui_controller_t::instance().load(name);
+                    save_action->setEnabled(true);
+                    save_as_action->setEnabled(true);
+                    close_action->setEnabled(true);
+                    edit_metatype_action->setEnabled(true);
+                }
+            });
+            connect(save_action, &QAction::triggered, this, []() {
+                draw_ui_controller_t::instance().save();
+            });
+            connect(save_as_action, &QAction::triggered, this, []() {
+                if (QString name = QFileDialog::getOpenFileName(nullptr, u8"选择文件"); name.size()) {
+                    draw_ui_controller_t::instance().change_name(name);
+                    draw_ui_controller_t::instance().save();
+                }
+            });
+            connect(close_action, &QAction::triggered, this, [save_action, save_as_action, close_action, edit_metatype_action]() {
+                if (draw_ui_controller_t::instance().is_changed) {
+                    switch (QMessageBox::warning(nullptr, "", u8"保存吗？", QMessageBox::Ok, QMessageBox::No, QMessageBox::Cancel)) {
+                        case QMessageBox::Ok: draw_ui_controller_t::instance().save(); break;
+                        default: return;
+                    }
+                }
+                save_action->setEnabled(false);
+                save_as_action->setEnabled(false);
+                close_action->setEnabled(false);
+                edit_metatype_action->setEnabled(false);
+            });
+            connect(edit_metatype_action, &QAction::triggered, this, [this]() {
+                add_type_view.show();
+            });
             connect(add_object_action, &QAction::triggered, this, [this, add_object_action, finish_add_object_action, choose_type_action, types_combobox]() {
-                _central.setParent(nullptr);
-                setCentralWidget(&_edit);
+                central_view.setParent(nullptr);
+                setCentralWidget(&edit_view);
                 add_object_action->setEnabled(false);
                 finish_add_object_action->setEnabled(true);
                 choose_type_action->setEnabled(true);
@@ -478,8 +559,8 @@ namespace hwshqtb {
                     types_combobox->addItem(QString::fromStdString(key));
             });
             connect(finish_add_object_action, &QAction::triggered, this, [this, add_object_action, finish_add_object_action, choose_type_action]() {
-                _edit.setParent(nullptr);
-                setCentralWidget(&_central);
+                edit_view.setParent(nullptr);
+                setCentralWidget(&central_view);
                 add_object_action->setEnabled(true);
                 finish_add_object_action->setEnabled(false);
                 choose_type_action->setEnabled(false);
@@ -488,23 +569,24 @@ namespace hwshqtb {
                 if (index == 0) draw_ui_controller_t::instance().new_type = "";
                 else draw_ui_controller_t::instance().new_type = types_combobox->currentText().toStdString();
             });
-
-            QMenu* about_menu = menuBar()->addMenu(tr(u8"About"));
-            QAction* about_action = about_menu->addAction(tr(u8"About the application"));
-            QAction* aboutqt_action = about_menu->addAction(tr(u8"About Qt"), [this]() {
+            connect(about_action, &QAction::triggered, this, [this]() {
+                QMessageBox::about(this, tr(u8"About"), tr(u8"Qt5.15.12 learning.\n"
+                    "Aiming to create a game engine for war strategy games like World Conqueror series from Esay Tech, Europa Universalis series from Paradox Development Studio and other board games like mahjong.\n"
+                    "this is version beta0.1."));
+            });
+            connect(aboutqt_action, &QAction::triggered, this, [this]() {
                 QMessageBox::aboutQt(this, tr(u8"About Qt"));
             });
-
-            connect(&_add_type, &edit_metatype_view_t::closed, this, [add_object_action]() {
+            connect(&add_type_view, &edit_metatype_view_t::closed, this, [add_object_action]() {
                 if (draw_ui_controller_t::instance().data.metatypes().size()) add_object_action->setEnabled(true);
                 else add_object_action->setEnabled(false);
             });
         }
 
     private:
-        central_view_t _central{this};
-        edit_view_t _edit{this};
-        edit_metatype_view_t _add_type{this};
+        central_view_t central_view{this};
+        edit_view_t edit_view{this};
+        edit_metatype_view_t add_type_view{this};
     };
 }
 

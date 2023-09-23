@@ -11,12 +11,15 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <QDebug>
 
 template <class CharT, class Traits>
 inline std::basic_istream<CharT, Traits>& operator>>(std::basic_istream<CharT, Traits>& in, QPointF& point) {
     qreal x, y;
-    in >> x >> y;
-    point = {x, y};
+    if ((in >> x).good()) {
+        in >> y;
+        point = {x, y};
+    }
     return in;
 }
 template <class CharT, class Traits>
@@ -63,6 +66,16 @@ namespace hwshqtb {
                 type = t;
                 change(str, p, n);
             }
+            std::string original()const {
+                return std::visit([this](auto&& arg) -> std::string {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, std::monostate>) return {};
+                    else if constexpr (std::is_same_v<T, double>) return std::to_string(arg);
+                    else if constexpr (std::is_same_v<T, uint32_t>) return std::to_string(arg);
+                    else if (type == draw_ui_data_t::type_t::string) return arg;
+                    else return arg;
+                }, value);
+            }
 
             template <class CharT, class Traits>
             friend inline std::basic_istream<CharT, Traits>& operator>>(std::basic_istream<CharT, Traits>& in, value_t& value) {
@@ -106,13 +119,17 @@ namespace hwshqtb {
     public:
         draw_ui_data_t(std::map<QPointF, int>& points):
             _points(points) {}
+        draw_ui_data_t(draw_ui_data_t&& other) = default;
+        draw_ui_data_t(const draw_ui_data_t& other) = delete;
         ~draw_ui_data_t() = default;
+
+        draw_ui_data_t& operator=(draw_ui_data_t&& other) = default;
+        draw_ui_data_t& operator=(const draw_ui_data_t& other) = delete;
 
         void load(std::string&& name) {
             _name = std::move(name);
 
-            {
-                std::ifstream input_meta(_name + "_meta");
+            if (std::ifstream input_meta(_name + "_meta"); input_meta.is_open()) {
                 std::string type;
                 int t;
                 std::string property;
@@ -126,8 +143,7 @@ namespace hwshqtb {
                     add_metatype(std::move(type), std::move(metatype));
                 }
             }
-            {
-                std::ifstream input(_name);
+            if (std::ifstream input(_name); input.is_open()) {
                 input >> _width >> _height;
                 std::string type;
                 QPointF point;
@@ -140,10 +156,10 @@ namespace hwshqtb {
                         ++_points[point];
                         tile.emplace_back(std::move(point));
                     }
+                    input.clear(input.rdstate() & ~std::ios::failbit);
                 }
             }
-            {
-                std::ifstream input_link(_name + "_link");
+            if (std::ifstream input_link(_name + "_link"); input_link.is_open()) {
                 std::string str;
                 while (!input_link.eof()) {
                     std::getline(input_link, str);
@@ -159,18 +175,16 @@ namespace hwshqtb {
             }
         }
         void save()const {
-            {
-                std::ofstream output_meta(_name + "_meta");
+            if (std::ofstream output_meta(_name + "_meta"); output_meta.is_open()) {
                 for (auto& [type, properties]: _metatypes) {
                     output_meta << type << " ";
                     for (auto& [property, t] : properties) {
-                        output_meta << static_cast<uint8_t>(t) << " " << property << " ";
+                        output_meta << static_cast<unsigned int>(t) << " " << property << " ";
                     }
                     output_meta << "\n";
                 }
             }
-            {
-                std::ofstream output(_name);
+            if (std::ofstream output(_name); output.is_open()) {
                 output << _width << " " << _height << "\n";
                 for (int i = 0; i < _types.size(); ++i) {
                     output << _types[i]->first << " ";
@@ -181,8 +195,7 @@ namespace hwshqtb {
                     output << "\n";
                 }
             }
-            {
-                std::ofstream output_link(_name + "_link");
+            if (std::ofstream output_link(_name + "_link"); output_link.is_open()) {
                 for (const std::vector<int>& link : _links) {
                     for (int to : link)
                         output_link << to << " ";
@@ -218,6 +231,12 @@ namespace hwshqtb {
             _tiles.erase(_tiles.begin() + i);
         }
 
+        std::string name()const {
+            return _name;
+        }
+        void name(std::string&& name) {
+            _name = std::move(name);
+        }
         metatypes_iterator_t metatypes_end() {
             return _metatypes.end();
         }

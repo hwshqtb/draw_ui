@@ -30,18 +30,14 @@ namespace hwshqtb {
             return controller;
         }
 
-        bool load() {
-            std::string name = QFileDialog::getOpenFileName(nullptr, u8"选择文件").toStdString();
-            if (name.empty()) return false;
-            data.load(std::move(name));
-            return true;
+        void load(const QString& name) {
+            data.load(std::move(name.toStdString()));
         }
-        void exit() {
-            if (!is_changed) return;
-            switch (QMessageBox::warning(nullptr, "", u8"保存吗？", QMessageBox::Ok, QMessageBox::No, QMessageBox::Cancel)) {
-                case QMessageBox::Ok: data.save(); break;
-                default: break;
-            }
+        void save() {
+            data.save();
+        }
+        void change_name(const QString& name) {
+            data.name(name.toStdString());
         }
 
         void add_point(QPointF point) {
@@ -61,11 +57,23 @@ namespace hwshqtb {
                 new_tile.pop_back();
             }
         }
-        
-        int polygon_of_point(const QPointF& point) {
+        int polygon_of_point(const QPointF& point)const {
             for (int i = 0; i < data.tiles().size(); ++i)
                 if (_winding_number(data.tile(i), point)) return i;
             return -1;
+        }
+
+        void change_type(int i, const QString& type) {
+            data.type(i, type.toStdString());
+        }
+        void change_property(int i, const QString& key, const QString& value) {
+            std::string k = key.toStdString();
+            draw_ui_data_t::value_t v = data.value(i, k);
+            v.change(value.toStdString(), {}, {});
+            data.value(i, k, std::move(v));
+        }
+        QString get_property(int i, const std::string& key)const {
+            return QString::fromStdString(data.value(i, key).original());
         }
 
     private:
@@ -75,10 +83,10 @@ namespace hwshqtb {
             return point;
         }
 
-        qreal _check_edge(const QPointF& from, const QPointF& to, const QPointF& point) {
+        qreal _check_edge(const QPointF& from, const QPointF& to, const QPointF& point)const {
             return (from.y() - point.y()) * (to.x() - point.x()) - (to.y() - point.y()) * (from.x() - point.x());
         }
-        int _winding_number(const std::vector<QPointF>& tile, const QPointF& point) {
+        int _winding_number(const std::vector<QPointF>& tile, const QPointF& point)const {
             int ret = 0;
             for (int i = 0; i < tile.size() - 1; ++i) {
                 if (qreal_less(tile[i].y(), point.y()) && qreal_less(point.y(), tile[i + 1].y()) && _check_edge(tile[i], tile[i + 1], point) > 0) ++ret;
