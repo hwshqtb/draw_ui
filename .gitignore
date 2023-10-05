@@ -365,4 +365,4 @@ FodyWeavers.xsd
 # visual studio
 /draw_ui.sln
 /draw_ui.vcxproj
-/draw_ui.vcxporj.filters
+/draw_ui.vcxproj.filters
